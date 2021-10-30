@@ -1,43 +1,43 @@
-package hub
+package websub
 
 import (
-    "io"
-    "net/http"
-    "time"
+	"io"
+	"net/http"
+	"time"
 )
 
 var (
-    contentClient = &http.Client{
-        Timeout: 30 * time.Second,
-    }
+	contentClient = &http.Client{
+		Timeout: 30 * time.Second,
+	}
 )
 
 func HttpContent(topic string) ([]byte, string, error) {
-    req, err := http.NewRequest(http.MethodGet, topic, nil)
+	req, err := http.NewRequest(http.MethodGet, topic, nil)
 
-    if err != nil {
-        return nil, "", err
-    }
+	if err != nil {
+		return nil, "", err
+	}
 
-    res, err := contentClient.Do(req)
+	res, err := contentClient.Do(req)
 
-    if err != nil {
-        return nil, "", err
-    }
+	if err != nil {
+		return nil, "", err
+	}
 
-    defer res.Body.Close()
+	defer res.Body.Close()
 
-    data, err := io.ReadAll(res.Body)
+	data, err := io.ReadAll(res.Body)
 
-    if err != nil {
-        return nil, "", err
-    }
+	if err != nil {
+		return nil, "", err
+	}
 
-    contentType := res.Header.Get("Content-Type")
+	contentType := res.Header.Get("Content-Type")
 
-    if contentType == "" {
-        contentType = "text/xml"
-    }
+	if contentType == "" {
+		contentType = "text/xml"
+	}
 
-    return data, contentType, nil
+	return data, contentType, nil
 }

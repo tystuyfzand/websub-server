@@ -1,4 +1,4 @@
-package hub
+package websub
 
 import (
 	"bytes"
@@ -26,10 +26,10 @@ import (
 )
 
 const (
-	ModeSubscribe = "HandleSubscribe"
+	ModeSubscribe   = "HandleSubscribe"
 	ModeUnsubscribe = "HandleUnsubscribe"
-	ModeDenied = "denied"
-	ModePublish = "HandlePublish"
+	ModeDenied      = "denied"
+	ModePublish     = "HandlePublish"
 )
 
 // Validator is a function to validate a subscription request.
@@ -44,13 +44,13 @@ type Option func(h *Hub)
 
 // Hub represents a WebSub hub.
 type Hub struct {
-	client *http.Client
-	store store.Store
+	client          *http.Client
+	store           store.Store
 	validator       Validator
 	contentProvider ContentProvider
-	worker Worker
-	hasher string
-	MaxLease time.Duration
+	worker          Worker
+	hasher          string
+	MaxLease        time.Duration
 }
 
 var (
@@ -93,9 +93,9 @@ func New(store store.Store, opts ...Option) *Hub {
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		store: store,
+		store:           store,
 		contentProvider: HttpContent,
-		hasher: "sha256",
+		hasher:          "sha256",
 	}
 
 	for _, opt := range opts {
@@ -154,11 +154,11 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type subscribeRequest struct {
-	Mode string `form:"hub.mode" validate:"required"`
-	Callback string `form:"hub.callback" validate:"required"`
-	Topic string `form:"hub.topic" validate:"required"`
-	Secret string `form:"hub.secret" validate:"max:200"`
-	LeaseSeconds int `form:"hub.lease_seconds" validate:""`
+	Mode         string `form:"hub.mode" validate:"required"`
+	Callback     string `form:"hub.callback" validate:"required"`
+	Topic        string `form:"hub.topic" validate:"required"`
+	Secret       string `form:"hub.secret" validate:"max:200"`
+	LeaseSeconds int    `form:"hub.lease_seconds" validate:""`
 }
 
 // HandleSubscribe handles a hub.mode=subscribe request.
@@ -178,7 +178,7 @@ func (h *Hub) HandleSubscribe(r *http.Request) error {
 	leaseDuration := 240 * time.Hour
 
 	if req.LeaseSeconds > 0 {
-		if req.LeaseSeconds < 60 || time.Duration(req.LeaseSeconds) * time.Second > h.MaxLease {
+		if req.LeaseSeconds < 60 || time.Duration(req.LeaseSeconds)*time.Second > h.MaxLease {
 			return errors.New("invalid hub.lease_seconds value")
 		} else {
 			leaseDuration = time.Duration(req.LeaseSeconds) * time.Second
@@ -186,10 +186,10 @@ func (h *Hub) HandleSubscribe(r *http.Request) error {
 	}
 
 	sub := model.Subscription{
-		Topic: req.Topic,
+		Topic:    req.Topic,
 		Callback: req.Callback,
-		Secret: req.Secret,
-		Expires: time.Now().Add(leaseDuration),
+		Secret:   req.Secret,
+		Expires:  time.Now().Add(leaseDuration),
 	}
 
 	if h.validator != nil {
@@ -223,9 +223,9 @@ func (h *Hub) HandleSubscribe(r *http.Request) error {
 }
 
 type unsubscribeRequest struct {
-	Mode string `form:"hub.mode" validate:"required"`
+	Mode     string `form:"hub.mode" validate:"required"`
 	Callback string `form:"hub.callback" validate:"required,url"`
-	Topic string `form:"hub.topic" validate:"required"`
+	Topic    string `form:"hub.topic" validate:"required"`
 }
 
 // HandleUnsubscribe handles a hub.mode=unsubscribe
@@ -242,7 +242,7 @@ func (h *Hub) HandleUnsubscribe(r *http.Request) error {
 	}
 
 	sub := model.Subscription{
-		Topic: req.Topic,
+		Topic:    req.Topic,
 		Callback: req.Callback,
 	}
 
@@ -284,7 +284,7 @@ func (h *Hub) Verify(mode string, sub model.Subscription) error {
 
 	if mode != ModeDenied {
 		q.Set("hub.challenge", challenge)
-		q.Set("hub.lease_seconds", strconv.Itoa(int(sub.LeaseTime / time.Second)))
+		q.Set("hub.lease_seconds", strconv.Itoa(int(sub.LeaseTime/time.Second)))
 	} else if sub.Reason != nil {
 		q.Set("hub.reason", sub.Reason.Error())
 	}
@@ -297,7 +297,7 @@ func (h *Hub) Verify(mode string, sub model.Subscription) error {
 		return err
 	}
 
-	req.Header.Set("User-Agent", "Go WebSub 1.0 ("+ runtime.Version() + ")")
+	req.Header.Set("User-Agent", "Go WebSub 1.0 ("+runtime.Version()+")")
 
 	res, err := h.client.Do(req)
 
@@ -330,7 +330,7 @@ func (h *Hub) Verify(mode string, sub model.Subscription) error {
 
 	if string(data) != challenge {
 		// Nope.
-		return errors.New(fmt.Sprint("verification: challenge did not match for " + u.Host + ", expected: ", challenge, " actual: ", string(data)))
+		return errors.New(fmt.Sprint("verification: challenge did not match for "+u.Host+", expected: ", challenge, " actual: ", string(data)))
 	}
 
 	if mode == ModeSubscribe {
@@ -392,7 +392,7 @@ func (h *Hub) callCallback(job PublishJob) bool {
 	if job.Subscription.Secret != "" {
 		mac := hmac.New(newHash(h.hasher), []byte(job.Subscription.Secret))
 		mac.Write(job.Data)
-		req.Header.Set("X-Hub-Signature", h.hasher + "=" + hex.EncodeToString(mac.Sum(nil)))
+		req.Header.Set("X-Hub-Signature", h.hasher+"="+hex.EncodeToString(mac.Sum(nil)))
 	}
 
 	req.Header.Set("Content-Type", job.ContentType)
