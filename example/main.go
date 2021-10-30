@@ -16,7 +16,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	h := hub.New(store)
+	h := websub.New(store)
 
 	r := http.NewServeMux()
 
