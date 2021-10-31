@@ -16,6 +16,7 @@ import (
 	"hash"
 	"io"
 	"log"
+	"meow.tf/websub/handler"
 	"meow.tf/websub/model"
 	"meow.tf/websub/store"
 	"net/http"
@@ -44,6 +45,8 @@ type Option func(h *Hub)
 
 // Hub represents a WebSub hub.
 type Hub struct {
+	*handler.Handler
+
 	client          *http.Client
 	store           store.Store
 	validator       Validator
@@ -90,6 +93,7 @@ func WithWorker(worker Worker) Option {
 // store is required to store all of the subscriptions.
 func New(store store.Store, opts ...Option) *Hub {
 	h := &Hub{
+		Handler: handler.New(),
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -215,7 +219,14 @@ func (h *Hub) HandleSubscribe(r *http.Request) error {
 		err := h.Verify(hubMode, sub)
 
 		if err != nil {
-			log.Println("Error:", err)
+			h.Call(&VerificationFailed{
+				Subscription: sub,
+				Error:        err,
+			})
+		} else {
+			h.Call(&Verified{
+				Subscription: sub,
+			})
 		}
 	}(req.Mode, sub)
 
@@ -373,6 +384,12 @@ func (h *Hub) Publish(topic, contentType string, data []byte) error {
 	if err != nil {
 		return err
 	}
+
+	h.Call(&Publish{
+		Topic:       topic,
+		ContentType: contentType,
+		Data:        data,
+	})
 
 	for _, sub := range subs {
 		h.worker.Add(PublishJob{sub, contentType, data})
