@@ -5,6 +5,12 @@ A Go implementation of a [WebSub](https://www.w3.org/TR/websub/) server.
 
 See `examples/main.go` for a basic example which uses boltdb and a simple publisher.
 
+Importing:
+
+```
+go get meow.tf/websub
+```
+
 Stores
 ------
 
