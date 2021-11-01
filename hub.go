@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
-	"github.com/gorilla/schema"
 	"github.com/jpillora/backoff"
+	"github.com/mitchellh/mapstructure"
 	"hash"
 	"io"
 	"log"
@@ -21,16 +21,18 @@ import (
 	"meow.tf/websub/store"
 	"net/http"
 	"net/url"
+	"reflect"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 )
 
 const (
-	ModeSubscribe   = "HandleSubscribe"
-	ModeUnsubscribe = "HandleUnsubscribe"
+	ModeSubscribe   = "subscribe"
+	ModeUnsubscribe = "unsubscribe"
 	ModeDenied      = "denied"
-	ModePublish     = "HandlePublish"
+	ModePublish     = "publish"
 )
 
 // Validator is a function to validate a subscription request.
@@ -53,6 +55,7 @@ type Hub struct {
 	contentProvider ContentProvider
 	worker          Worker
 	hasher          string
+	url             string
 	MaxLease        time.Duration
 }
 
@@ -89,6 +92,14 @@ func WithWorker(worker Worker) Option {
 	}
 }
 
+// WithURL lets you set the hub url.
+// By default, this is auto detected on first request for ease of use.
+func WithURL(url string) Option {
+	return func(h *Hub) {
+		h.url = url
+	}
+}
+
 // New creates a new WebSub Hub instance.
 // store is required to store all of the subscriptions.
 func New(store store.Store, opts ...Option) *Hub {
@@ -117,6 +128,11 @@ func New(store store.Store, opts ...Option) *Hub {
 // ServeHTTP is a generic webserver handler for websub.
 // It takes in "hub.mode" from the form, and passes it to the appropriate handlers.
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	hubMode := r.FormValue("hub.mode")
 
 	if hubMode == "" {
@@ -124,9 +140,36 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If url is not set, set to something we can "guess"
+	if h.url == "" {
+		proto := "http"
+
+		// Usually X-Forwarded cannot be trusted, but in this case it's the first request that defines it.
+		// For our case, this simply sets the hub url via "auto detection".
+		// it is STRONGLY advised to set the url using WithURL beforehand.
+		if r.Header.Get("X-Forwarded-Proto") == "https" {
+			proto = r.Header.Get("X-Forwarded-Proto")
+		}
+
+		u := &url.URL{
+			Scheme: proto,
+			Host:   r.Host,
+			Path:   r.RequestURI,
+		}
+
+		h.url = strings.TrimRight(u.String(), "/")
+	}
+
 	switch hubMode {
 	case ModeSubscribe:
-		err := h.HandleSubscribe(r)
+		var req SubscribeRequest
+
+		if err := DecodeForm(r, &req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err := h.HandleSubscribe(req)
 
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -135,7 +178,14 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusAccepted)
 	case ModeUnsubscribe:
-		err := h.HandleUnsubscribe(r)
+		var req UnsubscribeRequest
+
+		if err := DecodeForm(r, &req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err := h.HandleUnsubscribe(req)
 
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -144,7 +194,14 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusAccepted)
 	case ModePublish:
-		err := h.HandlePublish(r)
+		var req PublishRequest
+
+		if err := DecodeForm(r, &req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err := h.HandlePublish(req)
 
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -157,23 +214,18 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type subscribeRequest struct {
+// SubscribeRequest represents a form request for a subscribe.
+type SubscribeRequest struct {
 	Mode         string `form:"hub.mode" validate:"required"`
 	Callback     string `form:"hub.callback" validate:"required"`
 	Topic        string `form:"hub.topic" validate:"required"`
-	Secret       string `form:"hub.secret" validate:"max:200"`
+	Secret       string `form:"hub.secret" validate:"max=200"`
 	LeaseSeconds int    `form:"hub.lease_seconds" validate:""`
 }
 
 // HandleSubscribe handles a hub.mode=subscribe request.
-func (h *Hub) HandleSubscribe(r *http.Request) error {
+func (h *Hub) HandleSubscribe(req SubscribeRequest) error {
 	// validate for required fields
-	req := &subscribeRequest{}
-
-	if err := DecodeForm(r, &req); err != nil {
-		return err
-	}
-
 	if err := v.Struct(req); err != nil {
 		return err
 	}
@@ -233,21 +285,16 @@ func (h *Hub) HandleSubscribe(r *http.Request) error {
 	return nil
 }
 
-type unsubscribeRequest struct {
+// UnsubscribeRequest represents a form request for an unsubscribe.
+type UnsubscribeRequest struct {
 	Mode     string `form:"hub.mode" validate:"required"`
 	Callback string `form:"hub.callback" validate:"required,url"`
 	Topic    string `form:"hub.topic" validate:"required"`
 }
 
 // HandleUnsubscribe handles a hub.mode=unsubscribe
-func (h *Hub) HandleUnsubscribe(r *http.Request) error {
+func (h *Hub) HandleUnsubscribe(req UnsubscribeRequest) error {
 	// validate for required fields
-	req := &unsubscribeRequest{}
-
-	if err := DecodeForm(r, &req); err != nil {
-		return err
-	}
-
 	if err := v.Struct(req); err != nil {
 		return err
 	}
@@ -356,25 +403,24 @@ func (h *Hub) Verify(mode string, sub model.Subscription) error {
 	return err
 }
 
-type publishRequest struct {
-	URL string `form:"hub.url" validation:"required"`
+// PublishRequest represents a form request for a publish.
+type PublishRequest struct {
+	Topic string `form:"hub.topic" validation:"required"`
 }
 
 // HandlePublish handles a request to publish from a publisher.
-func (h *Hub) HandlePublish(r *http.Request) error {
-	req := &publishRequest{}
-
-	if err := DecodeForm(r, &req); err != nil {
+func (h *Hub) HandlePublish(req PublishRequest) error {
+	if err := v.Struct(req); err != nil {
 		return err
 	}
 
-	data, contentType, err := h.contentProvider(req.URL)
+	data, contentType, err := h.contentProvider(req.Topic)
 
 	if err != nil {
 		return err
 	}
 
-	return h.Publish(req.URL, contentType, data)
+	return h.Publish(req.Topic, contentType, data)
 }
 
 // Publish queues responses to the worker for a publish.
@@ -413,7 +459,7 @@ func (h *Hub) callCallback(job PublishJob) bool {
 	}
 
 	req.Header.Set("Content-Type", job.ContentType)
-	req.Header.Set("Link", fmt.Sprintf("<%s>; rel=\"hub\", <%s>; rel=\"self\"", "", job.Subscription.Topic))
+	req.Header.Set("Link", fmt.Sprintf("<%s>; rel=\"hub\", <%s>; rel=\"self\"", h.url, job.Subscription.Topic))
 
 	b := &backoff.Backoff{
 		Min:    100 * time.Millisecond,
@@ -466,13 +512,34 @@ func newHash(hasher string) func() hash.Hash {
 	panic("Invalid hasher type supplied")
 }
 
-// DecodeForm decodes a request form into a struct using the gorilla schema package.
+// DecodeForm decodes a request form into a struct using the mapstructure package.
 func DecodeForm(r *http.Request, dest interface{}) error {
-	if err := r.ParseForm(); err != nil {
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		TagName: "form",
+		Result:  dest,
+		// This hook is a trick to allow us to map from []string -> string in the case of elements.
+		// This is only required because we're mapping from r.Form -> struct.
+		DecodeHook: func(from reflect.Kind, to reflect.Kind, v interface{}) (interface{}, error) {
+			if from == reflect.Slice && to == reflect.String {
+				switch s := v.(type) {
+				case []string:
+					if len(s) < 1 {
+						return "", nil
+					}
+
+					return s[0], nil
+				}
+
+				return v, nil
+			}
+
+			return v, nil
+		},
+	})
+
+	if err != nil {
 		return err
 	}
 
-	decoder := schema.NewDecoder()
-	decoder.SetAliasTag("form")
-	return decoder.Decode(dest, r.Form)
+	return decoder.Decode(r.Form)
 }

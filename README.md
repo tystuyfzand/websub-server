@@ -1,7 +1,7 @@
 Go WebSub Server
 ================
 
-A Go implementation of a [WebSub](https://www.w3.org/TR/websub/) server.
+A Go implementation of a [WebSub](https://www.w3.org/TR/websub/) server. It has been tested to pass every [WebSub Rocks! Hub test](https://websub.rocks/hub).
 
 See `examples/main.go` for a basic example which uses boltdb and a simple publisher.
 
@@ -10,6 +10,15 @@ Importing:
 ```
 go get meow.tf/websub
 ```
+
+Features
+--------
+
+* Acts as a package to allow implementation using your favorite HTTP router (See Hub.ServeHTTP, as well as each Handle method for implementation in other routers that aren't stdlib compliant)
+* Allows publishing of events directly from the hub, for use with custom implementations (such as a bridge for services that don't support hubs)
+* Supports secrets and sha1, sha256, sha384, sha512 validation
+* Supports `Content-Type` forwarding.
+* Supports external workers to scale past what a single server can do (See [Workers](#Workers))
 
 Stores
 ------
