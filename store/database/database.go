@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// New creates a new memory store.
-func New(db *sql.DB) (*Store, error) {
+// New creates a new database store.
+func New(db *sql.DB) *Store {
 	s := &Store{
 		Handler: handler.New(),
 		db:      db,
@@ -24,16 +24,16 @@ func New(db *sql.DB) (*Store, error) {
 		}
 	}()
 
-	return s, nil
+	return s
 }
 
-// Store represents a memory backed store.
+// Store represents a database backed store.
 type Store struct {
 	*handler.Handler
 	db *sql.DB
 }
 
-// Cleanup will loop all buckets and keys, expiring subscriptions that are old.
+// Cleanup will run a query to remove expired subscriptions, as well as clean up topics.
 func (s *Store) Cleanup() {
 	// Cleanup expired subscriptions which were not renewed
 	_, err := s.db.Exec("DELETE FROM subscriptions WHERE expires_at <= NOW()")
@@ -89,6 +89,7 @@ func (s *Store) All(topic string) ([]model.Subscription, error) {
 	return subscriptions, nil
 }
 
+// findTopic will find an existing topic and return the id.
 func (s *Store) findTopic(topic string) (int64, error) {
 	topicRow := s.db.QueryRow("SELECT id FROM topics WHERE topic = ?", topic)
 
@@ -105,6 +106,7 @@ func (s *Store) findTopic(topic string) (int64, error) {
 	return topicID, nil
 }
 
+// findOrCreateTopic will find an existing topic, or create a new topic and return the id.
 func (s *Store) findOrCreateTopic(topic string) (int64, error) {
 	topicID, err := s.findTopic(topic)
 
@@ -177,7 +179,7 @@ func (s *Store) Get(topic, callback string) (*model.Subscription, error) {
 	return &sub, nil
 }
 
-// Remove removes a subscription from the bucket for the specified topic.
+// Remove removes a subscription from the database for the specified topic and callback.
 func (s *Store) Remove(sub model.Subscription) error {
 	if sub.ID > 0 {
 		_, err := s.db.Exec("DELETE FROM subscriptions WHERE id = ?", sub.ID)
