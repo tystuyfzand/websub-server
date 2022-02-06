@@ -2,16 +2,11 @@ package bolt
 
 import (
 	"encoding/json"
-	"errors"
 	bolt "go.etcd.io/bbolt"
 	"meow.tf/websub/handler"
 	"meow.tf/websub/model"
 	"meow.tf/websub/store"
 	"time"
-)
-
-var (
-	ErrNotFound = errors.New("subscription not found")
 )
 
 // New creates a new boltdb store.
@@ -80,7 +75,7 @@ func (s *Store) All(topic string) ([]model.Subscription, error) {
 		b := tx.Bucket([]byte(topic))
 
 		if b == nil {
-			return ErrNotFound
+			return store.ErrNotFound
 		}
 
 		return b.ForEach(func(k, v []byte) error {
@@ -144,7 +139,7 @@ func (s *Store) Get(topic, callback string) (*model.Subscription, error) {
 		data := b.Get([]byte(callback))
 
 		if data == nil {
-			return ErrNotFound
+			return store.ErrNotFound
 		}
 
 		return json.Unmarshal(data, &sub)
@@ -159,7 +154,7 @@ func (s *Store) Remove(sub model.Subscription) error {
 		b := tx.Bucket([]byte(sub.Topic))
 
 		if b == nil {
-			return ErrNotFound
+			return store.ErrNotFound
 		}
 
 		return b.Delete([]byte(sub.Callback))
