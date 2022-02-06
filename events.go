@@ -13,6 +13,7 @@ type VerificationFailed struct {
 	Error        error
 }
 
+// Publish is called when items are published
 type Publish struct {
 	Topic       string
 	ContentType string

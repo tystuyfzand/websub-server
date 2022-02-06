@@ -98,6 +98,34 @@ func (s *Store) All(topic string) ([]model.Subscription, error) {
 	return subscriptions, err
 }
 
+// For returns the subscriptions for the specified callback
+func (s *Store) For(callback string) ([]model.Subscription, error) {
+	ret := make([]model.Subscription, 0)
+
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		return tx.ForEach(func(topic []byte, b *bolt.Bucket) error {
+			return b.ForEach(func(k, v []byte) error {
+				var s model.Subscription
+				err := json.Unmarshal(v, &s)
+
+				if err != nil {
+					return err
+				}
+
+				if s.Callback != callback {
+					return nil
+				}
+
+				ret = append(ret, s)
+
+				return nil
+			})
+		})
+	})
+
+	return ret, err
+}
+
 // Add stores a subscription in the bucket for the specified topic.
 func (s *Store) Add(sub model.Subscription) error {
 	err := s.db.Update(func(tx *bolt.Tx) error {

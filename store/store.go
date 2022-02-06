@@ -14,6 +14,9 @@ type Store interface {
 	// All returns all subscriptions for the specified topic.
 	All(topic string) ([]model.Subscription, error)
 
+	// For returns the subscriptions for the specified callback
+	For(callback string) ([]model.Subscription, error)
+
 	// Add saves/adds a subscription to the store.
 	Add(sub model.Subscription) error
 
