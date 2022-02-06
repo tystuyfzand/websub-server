@@ -1,16 +1,11 @@
-package bolt
+package database
 
 import (
 	"database/sql"
-	"errors"
 	"meow.tf/websub/handler"
 	"meow.tf/websub/model"
 	"meow.tf/websub/store"
 	"time"
-)
-
-var (
-	ErrNotFound = errors.New("subscription not found")
 )
 
 // New creates a new memory store.
@@ -40,10 +35,18 @@ type Store struct {
 
 // Cleanup will loop all buckets and keys, expiring subscriptions that are old.
 func (s *Store) Cleanup() {
+	// Cleanup expired subscriptions which were not renewed
 	_, err := s.db.Exec("DELETE FROM subscriptions WHERE expires_at <= NOW()")
 
 	if err != nil {
-		// TODO: Log error
+		return
+	}
+
+	// Cleanup topics with no subscriptions
+	_, err = s.db.Exec("DELETE FROM topics WHERE not exists (select 1 from subscriptions where subscriptions.topic_id = topics.id)")
+
+	if err != nil {
+		return
 	}
 }
 
@@ -54,7 +57,7 @@ func (s *Store) All(topic string) ([]model.Subscription, error) {
 	var topicID int64
 
 	if err := topicRow.Scan(&topicID); err != nil {
-		return nil, ErrNotFound
+		return nil, store.ErrNotFound
 	}
 
 	rows, err := s.db.Query("SELECT id, callback, secret, lease, expires_at FROM subscriptions WHERE topic_id = ?", topicID)
@@ -92,6 +95,10 @@ func (s *Store) findTopic(topic string) (int64, error) {
 	var topicID int64
 
 	if err := topicRow.Scan(&topicID); err != nil {
+		if err == sql.ErrNoRows {
+			return -1, store.ErrNotFound
+		}
+
 		return -1, err
 	}
 

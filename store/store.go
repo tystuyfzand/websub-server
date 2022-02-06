@@ -1,7 +1,12 @@
 package store
 
 import (
+	"errors"
 	"meow.tf/websub/model"
+)
+
+var (
+	ErrNotFound = errors.New("subscription not found")
 )
 
 // Store defines an interface for stores to implement for data storage.

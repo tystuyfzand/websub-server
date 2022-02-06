@@ -1,6 +1,6 @@
 create table subscriptions
 (
-    id          bigint                                null,
+    id          bigint unsigned auto_increment        null,
     topic_id    bigint unsigned                       not null,
     callback    varchar(1024)                         not null,
     secret      varchar(200)                          null,
