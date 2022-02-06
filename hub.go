@@ -28,13 +28,6 @@ import (
 	"time"
 )
 
-const (
-	ModeSubscribe   = "subscribe"
-	ModeUnsubscribe = "unsubscribe"
-	ModeDenied      = "denied"
-	ModePublish     = "publish"
-)
-
 // Validator is a function to validate a subscription request.
 // If error is not nil, hub.mode=verify will be called with the error.
 type Validator func(model.Subscription) error
@@ -161,8 +154,8 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch hubMode {
-	case ModeSubscribe:
-		var req SubscribeRequest
+	case model.ModeSubscribe:
+		var req model.SubscribeRequest
 
 		if err := DecodeForm(r, &req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -177,8 +170,8 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.WriteHeader(http.StatusAccepted)
-	case ModeUnsubscribe:
-		var req UnsubscribeRequest
+	case model.ModeUnsubscribe:
+		var req model.UnsubscribeRequest
 
 		if err := DecodeForm(r, &req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -193,8 +186,8 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.WriteHeader(http.StatusAccepted)
-	case ModePublish:
-		var req PublishRequest
+	case model.ModePublish:
+		var req model.PublishRequest
 
 		if err := DecodeForm(r, &req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -214,17 +207,8 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// SubscribeRequest represents a form request for a subscribe.
-type SubscribeRequest struct {
-	Mode         string `form:"hub.mode" validate:"required"`
-	Callback     string `form:"hub.callback" validate:"required"`
-	Topic        string `form:"hub.topic" validate:"required"`
-	Secret       string `form:"hub.secret" validate:"max=200"`
-	LeaseSeconds int    `form:"hub.lease_seconds" validate:""`
-}
-
 // HandleSubscribe handles a hub.mode=subscribe request.
-func (h *Hub) HandleSubscribe(req SubscribeRequest) error {
+func (h *Hub) HandleSubscribe(req model.SubscribeRequest) error {
 	// validate for required fields
 	if err := v.Struct(req); err != nil {
 		return err
@@ -254,7 +238,7 @@ func (h *Hub) HandleSubscribe(req SubscribeRequest) error {
 		if err != nil {
 			sub.Reason = err
 
-			return h.Verify(ModeDenied, sub)
+			return h.Verify(model.ModeDenied, sub)
 		}
 	}
 
@@ -285,15 +269,8 @@ func (h *Hub) HandleSubscribe(req SubscribeRequest) error {
 	return nil
 }
 
-// UnsubscribeRequest represents a form request for an unsubscribe.
-type UnsubscribeRequest struct {
-	Mode     string `form:"hub.mode" validate:"required"`
-	Callback string `form:"hub.callback" validate:"required,url"`
-	Topic    string `form:"hub.topic" validate:"required"`
-}
-
 // HandleUnsubscribe handles a hub.mode=unsubscribe
-func (h *Hub) HandleUnsubscribe(req UnsubscribeRequest) error {
+func (h *Hub) HandleUnsubscribe(req model.UnsubscribeRequest) error {
 	// validate for required fields
 	if err := v.Struct(req); err != nil {
 		return err
@@ -310,7 +287,7 @@ func (h *Hub) HandleUnsubscribe(req UnsubscribeRequest) error {
 		if err != nil {
 			sub.Reason = err
 
-			return h.Verify(ModeDenied, sub)
+			return h.Verify(model.ModeDenied, sub)
 		}
 	}
 
@@ -340,7 +317,7 @@ func (h *Hub) Verify(mode string, sub model.Subscription) error {
 	q.Set("hub.mode", mode)
 	q.Set("hub.topic", sub.Topic)
 
-	if mode != ModeDenied {
+	if mode != model.ModeDenied {
 		q.Set("hub.challenge", challenge)
 		q.Set("hub.lease_seconds", strconv.Itoa(int(sub.LeaseTime/time.Second)))
 	} else if sub.Reason != nil {
@@ -370,7 +347,7 @@ func (h *Hub) Verify(mode string, sub model.Subscription) error {
 
 	defer res.Body.Close()
 
-	if mode == ModeDenied {
+	if mode == model.ModeDenied {
 		io.Copy(io.Discard, res.Body)
 		return nil
 	}
@@ -391,11 +368,11 @@ func (h *Hub) Verify(mode string, sub model.Subscription) error {
 		return errors.New(fmt.Sprint("verification: challenge did not match for "+u.Host+", expected: ", challenge, " actual: ", string(data)))
 	}
 
-	if mode == ModeSubscribe {
+	if mode == model.ModeSubscribe {
 		// Update the subscription and set it as verified
 		// time.Now().Add(time.Duration(leaseSeconds) * time.Second), topic, callback
 		err = h.store.Add(sub)
-	} else if mode == ModeUnsubscribe {
+	} else if mode == model.ModeUnsubscribe {
 		// Delete the subscription
 		err = h.store.Remove(sub)
 	}
@@ -403,13 +380,8 @@ func (h *Hub) Verify(mode string, sub model.Subscription) error {
 	return err
 }
 
-// PublishRequest represents a form request for a publish.
-type PublishRequest struct {
-	Topic string `form:"hub.topic" validation:"required"`
-}
-
 // HandlePublish handles a request to publish from a publisher.
-func (h *Hub) HandlePublish(req PublishRequest) error {
+func (h *Hub) HandlePublish(req model.PublishRequest) error {
 	if err := v.Struct(req); err != nil {
 		return err
 	}

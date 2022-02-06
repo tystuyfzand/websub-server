@@ -89,6 +89,35 @@ func (s *Store) All(topic string) ([]model.Subscription, error) {
 	return subscriptions, nil
 }
 
+// For returns the subscriptions for the specified callback
+func (s *Store) For(callback string) ([]model.Subscription, error) {
+	rows, err := s.db.Query("SELECT subscriptions.id, topics.topic, callback, secret, lease, expires_at FROM subscriptions JOIN topics ON topics.id = subscriptions.topic_id WHERE callback = ?", callback)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	ret := make([]model.Subscription, 0)
+
+	for rows.Next() {
+		var sub model.Subscription
+
+		var leaseSeconds int
+
+		if err := rows.Scan(&sub.ID, &sub.Topic, &sub.Callback, &sub.Secret, &leaseSeconds, &sub.Expires); err != nil {
+			return nil, err
+		}
+
+		sub.LeaseTime = time.Duration(leaseSeconds) * time.Second
+
+		ret = append(ret, sub)
+	}
+
+	return ret, nil
+}
+
 // findTopic will find an existing topic and return the id.
 func (s *Store) findTopic(topic string) (int64, error) {
 	topicRow := s.db.QueryRow("SELECT id FROM topics WHERE topic = ?", topic)

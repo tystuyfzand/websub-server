@@ -1,7 +1,6 @@
-package bolt
+package memory
 
 import (
-	"errors"
 	"meow.tf/websub/handler"
 	"meow.tf/websub/model"
 	"meow.tf/websub/store"
@@ -9,12 +8,8 @@ import (
 	"time"
 )
 
-var (
-	ErrNotFound = errors.New("subscription not found")
-)
-
 // New creates a new memory store.
-func New() (*Store, error) {
+func New() *Store {
 	s := &Store{
 		Handler:   handler.New(),
 		topicLock: &sync.RWMutex{},
@@ -30,7 +25,7 @@ func New() (*Store, error) {
 		}
 	}()
 
-	return s, nil
+	return s
 }
 
 // Store represents a memory backed store.
@@ -69,6 +64,9 @@ func (s *Store) All(topic string) ([]model.Subscription, error) {
 
 	now := time.Now()
 
+	s.topicLock.RLock()
+	defer s.topicLock.RUnlock()
+
 	if subs, ok := s.topics[topic]; ok {
 		for _, sub := range subs {
 			if now.Before(sub.Expires) {
@@ -78,10 +76,28 @@ func (s *Store) All(topic string) ([]model.Subscription, error) {
 			subscriptions = append(subscriptions, sub)
 		}
 	} else {
-		return nil, ErrNotFound
+		return nil, store.ErrNotFound
 	}
 
 	return subscriptions, nil
+}
+
+// For returns the subscriptions for the specified callback
+func (s *Store) For(callback string) ([]model.Subscription, error) {
+	s.topicLock.RLock()
+	defer s.topicLock.RUnlock()
+
+	ret := make([]model.Subscription, 0)
+
+	for _, subs := range s.topics {
+		for _, sub := range subs {
+			if sub.Callback == callback {
+				ret = append(ret, sub)
+			}
+		}
+	}
+
+	return ret, nil
 }
 
 // Add stores a subscription in the bucket for the specified topic.
@@ -113,7 +129,7 @@ func (s *Store) Get(topic, callback string) (*model.Subscription, error) {
 	subs := s.topics[topic]
 
 	if subs == nil {
-		return nil, ErrNotFound
+		return nil, store.ErrNotFound
 	}
 
 	for _, sub := range subs {
@@ -122,7 +138,7 @@ func (s *Store) Get(topic, callback string) (*model.Subscription, error) {
 		}
 	}
 
-	return nil, ErrNotFound
+	return nil, store.ErrNotFound
 }
 
 // Remove removes a subscription from the bucket for the specified topic.
@@ -144,7 +160,7 @@ func (s *Store) Remove(sub model.Subscription) error {
 
 	if !found {
 		s.topicLock.Unlock()
-		return ErrNotFound
+		return store.ErrNotFound
 	}
 
 	s.topics[sub.Topic] = subs
