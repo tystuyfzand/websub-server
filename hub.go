@@ -49,7 +49,7 @@ type Hub struct {
 	worker          Worker
 	hasher          string
 	url             string
-	MaxLease        time.Duration
+	maxLease        time.Duration
 }
 
 var (
@@ -93,6 +93,14 @@ func WithURL(url string) Option {
 	}
 }
 
+// WithMaxLease lets you set the hub's max lease time.
+// By default, this is 24 hours.
+func WithMaxLease(maxLease time.Duration) Option {
+	return func(h *Hub) {
+		h.maxLease = maxLease
+	}
+}
+
 // New creates a new WebSub Hub instance.
 // store is required to store all of the subscriptions.
 func New(store store.Store, opts ...Option) *Hub {
@@ -104,6 +112,7 @@ func New(store store.Store, opts ...Option) *Hub {
 		store:           store,
 		contentProvider: HttpContent,
 		hasher:          "sha256",
+		maxLease:        24 * time.Hour,
 	}
 
 	for _, opt := range opts {
@@ -218,7 +227,7 @@ func (h *Hub) HandleSubscribe(req model.SubscribeRequest) error {
 	leaseDuration := 240 * time.Hour
 
 	if req.LeaseSeconds > 0 {
-		if req.LeaseSeconds < 60 || time.Duration(req.LeaseSeconds)*time.Second > h.MaxLease {
+		if req.LeaseSeconds < 60 || time.Duration(req.LeaseSeconds)*time.Second > h.maxLease {
 			return errors.New("invalid hub.lease_seconds value")
 		} else {
 			leaseDuration = time.Duration(req.LeaseSeconds) * time.Second
@@ -492,11 +501,17 @@ func DecodeForm(r *http.Request, dest interface{}) error {
 		// This hook is a trick to allow us to map from []string -> string in the case of elements.
 		// This is only required because we're mapping from r.Form -> struct.
 		DecodeHook: func(from reflect.Kind, to reflect.Kind, v interface{}) (interface{}, error) {
-			if from == reflect.Slice && to == reflect.String {
+			if from == reflect.Slice && (to == reflect.String || to == reflect.Int) {
 				switch s := v.(type) {
 				case []string:
 					if len(s) < 1 {
 						return "", nil
+					}
+
+					// Switch statement seems wasteful here, but if we want to add uint/etc we can easily.
+					switch to {
+					case reflect.Int:
+						return strconv.Atoi(s[0])
 					}
 
 					return s[0], nil
