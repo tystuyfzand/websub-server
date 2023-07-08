@@ -4,6 +4,7 @@ import "meow.tf/websub/model"
 
 // PublishJob represents a job to publish data to a subscription.
 type PublishJob struct {
+	Hub          model.Hub          `json:"hub"`
 	Subscription model.Subscription `json:"subscription"`
 	ContentType  string             `json:"contentType"`
 	Data         []byte             `json:"data"`
@@ -59,6 +60,16 @@ func (w *GoWorker) run() {
 			return
 		}
 
-		w.hub.callCallback(job)
+		sent, err := Notify(w.hub.client, job)
+
+		// TODO: Log errors
+		if err != nil {
+			continue
+		}
+
+		// Remove failed subscriptions
+		if !sent {
+			w.hub.store.Remove(job.Subscription)
+		}
 	}
 }

@@ -418,8 +418,18 @@ func (h *Hub) Publish(topic, contentType string, data []byte) error {
 		Data:        data,
 	})
 
+	hub := model.Hub{
+		Hasher: h.hasher,
+		URL:    h.url,
+	}
+
 	for _, sub := range subs {
-		h.worker.Add(PublishJob{sub, contentType, data})
+		h.worker.Add(PublishJob{
+			Hub:          hub,
+			Subscription: sub,
+			ContentType:  contentType,
+			Data:         data,
+		})
 	}
 
 	return nil
