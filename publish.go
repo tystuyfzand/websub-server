@@ -19,7 +19,7 @@ func Notify(client *http.Client, job PublishJob) (bool, error) {
 	}
 
 	if job.Subscription.Secret != "" {
-		mac := hmac.New(newHash(job.Hub.Hasher), []byte(job.Subscription.Secret))
+		mac := hmac.New(NewHasher(job.Hub.Hasher), []byte(job.Subscription.Secret))
 		mac.Write(job.Data)
 		req.Header.Set("X-Hub-Signature", job.Hub.Hasher+"="+hex.EncodeToString(mac.Sum(nil)))
 	}

@@ -444,7 +444,7 @@ func (h *Hub) callCallback(job PublishJob) bool {
 	}
 
 	if job.Subscription.Secret != "" {
-		mac := hmac.New(newHash(h.hasher), []byte(job.Subscription.Secret))
+		mac := hmac.New(NewHasher(h.hasher), []byte(job.Subscription.Secret))
 		mac.Write(job.Data)
 		req.Header.Set("X-Hub-Signature", h.hasher+"="+hex.EncodeToString(mac.Sum(nil)))
 	}
@@ -487,8 +487,8 @@ func (h *Hub) callCallback(job PublishJob) bool {
 	return false
 }
 
-// newHash takes a string and returns a hash.Hash based on type.
-func newHash(hasher string) func() hash.Hash {
+// NewHasher takes a string and returns a hash.Hash based on type.
+func NewHasher(hasher string) func() hash.Hash {
 	switch hasher {
 	case "sha1":
 		return sha1.New
