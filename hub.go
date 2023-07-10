@@ -63,7 +63,8 @@ type Hub struct {
 }
 
 var (
-	v = validator.New()
+	v           = validator.New()
+	keyReplacer = strings.NewReplacer(".", "-")
 )
 
 // WithValidator sets the subscription validator.
@@ -197,47 +198,12 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Support extra query parameters -> fields
 		if h.extraFields != nil && len(h.extraFields) > 0 {
-			fields := make(map[string]interface{})
-
-			if extraStr := r.FormValue("hub.extra"); extraStr != "" {
-				// Support direct passing of JSON-encoded data as hub.extra
-				if err := json.Unmarshal([]byte(extraStr), &fields); err != nil {
-					http.Error(w, "Invalid JSON data passed to hub.extra", http.StatusBadGateway)
-					return
-				}
-			} else {
-				// Alternatively, pull fields from form values
-				for key, _ := range h.extraFields {
-					if val := r.FormValue(key); val != "" {
-						fields[key] = val
-					}
-				}
-			}
-
-			// Validate extra fields - this should always be set
-			// Best practice is to enforce max string lengths, integers, etc
-			// This prevents data from being too large to save.
-			errFields := v.ValidateMap(fields, h.extraFields)
-
-			if errFields != nil {
-				http.Error(w, model.ValidationError{Fields: errFields}.Error(), http.StatusBadRequest)
-				return
-			}
-
-			// Validate data length in re-encoded JSON. We have an artificial cap of 5MB (which is pretty high...)
-			b, err := json.Marshal(fields)
+			err := h.DecodeExtraFields(r, &req)
 
 			if err != nil {
-				http.Error(w, "Validation of extra data failed", http.StatusBadRequest)
+				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-
-			if len(b) > h.maxExtraDataSize {
-				http.Error(w, "Extra data too large", http.StatusBadRequest)
-				return
-			}
-
-			req.Extra = fields
 		}
 
 		err := h.HandleSubscribe(req)
@@ -283,6 +249,52 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "hub.mode not recognized", http.StatusBadRequest)
 	}
+}
+
+// DecodeExtraFields is split from the handler to handle decoding of standard extra fields
+// Exported for external handler implementations to use it
+func (h *Hub) DecodeExtraFields(r *http.Request, req *model.SubscribeRequest) error {
+	fields := make(map[string]interface{})
+
+	if extraStr := r.FormValue("hub.extra"); extraStr != "" {
+		// Support direct passing of JSON-encoded data as hub.extra
+		if err := json.Unmarshal([]byte(extraStr), &fields); err != nil {
+			return errors.New("invalid json data passed to hub.extra")
+		}
+	} else {
+		// Alternatively, pull fields from the request form
+		// Headers are also supported, such as "X-Some-Value" where key is Some-Value or some.value
+		for key, _ := range h.extraFields {
+			if val := r.FormValue(key); val != "" {
+				fields[key] = val
+			} else if val := r.Header.Get("x-" + keyReplacer.Replace(key)); val != "" {
+				fields[key] = val
+			}
+		}
+	}
+
+	// Validate extra fields - this should always be set
+	// Best practice is to enforce max string lengths, integers, etc
+	// This prevents data from being too large to save.
+	errFields := v.ValidateMap(fields, h.extraFields)
+
+	if errFields != nil {
+		return model.ValidationError{Fields: errFields}
+	}
+
+	// Validate data length in re-encoded JSON. We have an artificial cap of 5MB (which is pretty high...)
+	b, err := json.Marshal(fields)
+
+	if err != nil {
+		return errors.New("validation of extra data failed")
+	}
+
+	if len(b) > h.maxExtraDataSize {
+		return errors.New("extra data too large")
+	}
+
+	req.Extra = fields
+	return nil
 }
 
 // HandleSubscribe handles a hub.mode=subscribe request.
