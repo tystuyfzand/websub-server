@@ -7,6 +7,7 @@ type SubscribeRequest struct {
 	Topic        string `form:"hub.topic" validate:"required"`
 	Secret       string `form:"hub.secret" validate:"max=200"`
 	LeaseSeconds int    `form:"hub.lease_seconds" validate:""`
+	Extra        map[string]interface{}
 }
 
 // UnsubscribeRequest represents a form request for an unsubscribe.

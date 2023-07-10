@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/go-playground/validator/v10"
@@ -28,6 +29,13 @@ import (
 	"time"
 )
 
+const (
+	SHA1   = "sha1"
+	SHA256 = "sha256"
+	SHA384 = "sha384"
+	SHA512 = "sha512"
+)
+
 // Validator is a function to validate a subscription request.
 // If error is not nil, hub.mode=verify will be called with the error.
 type Validator func(model.Subscription) error
@@ -42,14 +50,16 @@ type Option func(h *Hub)
 type Hub struct {
 	*handler.Handler
 
-	client          *http.Client
-	store           store.Store
-	validator       Validator
-	contentProvider ContentProvider
-	worker          Worker
-	hasher          string
-	url             string
-	maxLease        time.Duration
+	client           *http.Client
+	store            store.Store
+	validator        Validator
+	contentProvider  ContentProvider
+	worker           Worker
+	hasher           string
+	url              string
+	maxLease         time.Duration
+	maxExtraDataSize int
+	extraFields      map[string]interface{}
 }
 
 var (
@@ -101,6 +111,14 @@ func WithMaxLease(maxLease time.Duration) Option {
 	}
 }
 
+// WithExtra allows you to define fields to allow.
+// Fields will be pulled from the query parameters when subscriptions are registered.
+func WithExtra(extraFields map[string]interface{}) Option {
+	return func(h *Hub) {
+		h.extraFields = extraFields
+	}
+}
+
 // New creates a new WebSub Hub instance.
 // store is required to store all of the subscriptions.
 func New(store store.Store, opts ...Option) *Hub {
@@ -109,10 +127,11 @@ func New(store store.Store, opts ...Option) *Hub {
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		store:           store,
-		contentProvider: HttpContent,
-		hasher:          "sha256",
-		maxLease:        24 * time.Hour,
+		store:            store,
+		contentProvider:  HttpContent,
+		hasher:           SHA256,
+		maxLease:         24 * time.Hour,
+		maxExtraDataSize: 1024 * 1024 * 5, // 5MB
 	}
 
 	for _, opt := range opts {
@@ -125,6 +144,11 @@ func New(store store.Store, opts ...Option) *Hub {
 	}
 
 	return h
+}
+
+// Hasher returns the current hasher
+func (h *Hub) Hasher() string {
+	return h.hasher
 }
 
 // ServeHTTP is a generic webserver handler for websub.
@@ -169,6 +193,51 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := DecodeForm(r, &req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
+		}
+
+		// Support extra query parameters -> fields
+		if h.extraFields != nil && len(h.extraFields) > 0 {
+			fields := make(map[string]interface{})
+
+			if extraStr := r.FormValue("hub.extra"); extraStr != "" {
+				// Support direct passing of JSON-encoded data as hub.extra
+				if err := json.Unmarshal([]byte(extraStr), &fields); err != nil {
+					http.Error(w, "Invalid JSON data passed to hub.extra", http.StatusBadGateway)
+					return
+				}
+			} else {
+				// Alternatively, pull fields from form values
+				for key, _ := range h.extraFields {
+					if val := r.FormValue(key); val != "" {
+						fields[key] = val
+					}
+				}
+			}
+
+			// Validate extra fields - this should always be set
+			// Best practice is to enforce max string lengths, integers, etc
+			// This prevents data from being too large to save.
+			errFields := v.ValidateMap(fields, h.extraFields)
+
+			if errFields != nil {
+				http.Error(w, model.ValidationError{Fields: errFields}.Error(), http.StatusBadRequest)
+				return
+			}
+
+			// Validate data length in re-encoded JSON. We have an artificial cap of 5MB (which is pretty high...)
+			b, err := json.Marshal(fields)
+
+			if err != nil {
+				http.Error(w, "Validation of extra data failed", http.StatusBadRequest)
+				return
+			}
+
+			if len(b) > h.maxExtraDataSize {
+				http.Error(w, "Extra data too large", http.StatusBadRequest)
+				return
+			}
+
+			req.Extra = fields
 		}
 
 		err := h.HandleSubscribe(req)
@@ -490,13 +559,13 @@ func (h *Hub) callCallback(job PublishJob) bool {
 // NewHasher takes a string and returns a hash.Hash based on type.
 func NewHasher(hasher string) func() hash.Hash {
 	switch hasher {
-	case "sha1":
+	case SHA1:
 		return sha1.New
-	case "sha256":
+	case SHA256:
 		return sha256.New
-	case "sha384":
+	case SHA384:
 		return sha512.New384
-	case "sha512":
+	case SHA512:
 		return sha512.New
 	}
 

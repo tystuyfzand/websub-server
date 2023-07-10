@@ -5,6 +5,7 @@ create table subscriptions
     callback    varchar(1024)                         not null,
     secret      varchar(200)                          null,
     lease       int       default 0                   null,
+    extra       TEXT                                  null,
     created_at  timestamp default current_timestamp() not null,
     expires_at  timestamp                             null,
     constraint subscriptions_pk
@@ -20,7 +21,8 @@ create index subscriptions_topic_callback_index
 create table topics
 (
     id    bigint unsigned auto_increment primary key,
-    topic varchar(512) not null
+    topic varchar(512) not null,
+    created_at timestamp default current_timestamp() not null
 );
 
 create index topics_topic_index on topics (topic);

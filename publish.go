@@ -11,11 +11,16 @@ import (
 	"time"
 )
 
-func Notify(client *http.Client, job PublishJob) (bool, error) {
+var (
+	ErrPublishFailed    = errors.New("failed to publish after 3 attempts")
+	ErrSubscriptionGone = errors.New("subscription callback gone")
+)
+
+func Notify(client *http.Client, job PublishJob) error {
 	req, err := http.NewRequest(http.MethodPost, job.Subscription.Callback, bytes.NewReader(job.Data))
 
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	if job.Subscription.Secret != "" {
@@ -43,9 +48,9 @@ func Notify(client *http.Client, job PublishJob) (bool, error) {
 			res.Body.Close()
 
 			if res.StatusCode >= 200 && res.StatusCode <= 299 {
-				return true, nil
+				return nil
 			} else if res.StatusCode == http.StatusGone {
-				return false, nil
+				return ErrSubscriptionGone
 			}
 		}
 
@@ -58,5 +63,5 @@ func Notify(client *http.Client, job PublishJob) (bool, error) {
 		<-time.After(b.Duration())
 	}
 
-	return false, errors.New("failed to publish after 3 attempts")
+	return ErrPublishFailed
 }

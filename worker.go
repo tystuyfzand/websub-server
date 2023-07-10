@@ -60,7 +60,7 @@ func (w *GoWorker) run() {
 			return
 		}
 
-		sent, err := Notify(w.hub.client, job)
+		err := Notify(w.hub.client, job)
 
 		// TODO: Log errors
 		if err != nil {
@@ -68,7 +68,7 @@ func (w *GoWorker) run() {
 		}
 
 		// Remove failed subscriptions
-		if !sent {
+		if err == ErrSubscriptionGone {
 			w.hub.store.Remove(job.Subscription)
 		}
 	}

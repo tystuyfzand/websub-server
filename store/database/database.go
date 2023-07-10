@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"meow.tf/websub/handler"
 	"meow.tf/websub/model"
 	"meow.tf/websub/store"
@@ -60,7 +61,7 @@ func (s *Store) All(topic string) ([]model.Subscription, error) {
 		return nil, store.ErrNotFound
 	}
 
-	rows, err := s.db.Query("SELECT id, callback, secret, lease, expires_at FROM subscriptions WHERE topic_id = ?", topicID)
+	rows, err := s.db.Query("SELECT id, callback, secret, lease, expires_at, extra FROM subscriptions WHERE topic_id = ?", topicID)
 
 	if err != nil {
 		return nil, err
@@ -76,12 +77,19 @@ func (s *Store) All(topic string) ([]model.Subscription, error) {
 		}
 
 		var leaseSeconds int
+		var extra sql.NullString
 
-		if err := rows.Scan(&sub.ID, &sub.Callback, &sub.Secret, &leaseSeconds, &sub.Expires); err != nil {
+		if err := rows.Scan(&sub.ID, &sub.Callback, &sub.Secret, &leaseSeconds, &sub.Expires, &extra); err != nil {
 			return nil, err
 		}
 
 		sub.LeaseTime = time.Duration(leaseSeconds) * time.Second
+
+		if extra.Valid {
+			if err = json.Unmarshal([]byte(extra.String), &sub.Extra); err != nil {
+				return nil, err
+			}
+		}
 
 		subscriptions = append(subscriptions, sub)
 	}
@@ -91,7 +99,7 @@ func (s *Store) All(topic string) ([]model.Subscription, error) {
 
 // For returns the subscriptions for the specified callback
 func (s *Store) For(callback string) ([]model.Subscription, error) {
-	rows, err := s.db.Query("SELECT subscriptions.id, topics.topic, callback, secret, lease, expires_at FROM subscriptions JOIN topics ON topics.id = subscriptions.topic_id WHERE callback = ?", callback)
+	rows, err := s.db.Query("SELECT subscriptions.id, topics.topic, callback, secret, lease, expires_at, extra FROM subscriptions JOIN topics ON topics.id = subscriptions.topic_id WHERE callback = ?", callback)
 
 	if err != nil {
 		return nil, err
@@ -105,12 +113,19 @@ func (s *Store) For(callback string) ([]model.Subscription, error) {
 		var sub model.Subscription
 
 		var leaseSeconds int
+		var extra sql.NullString
 
-		if err := rows.Scan(&sub.ID, &sub.Topic, &sub.Callback, &sub.Secret, &leaseSeconds, &sub.Expires); err != nil {
+		if err := rows.Scan(&sub.ID, &sub.Topic, &sub.Callback, &sub.Secret, &leaseSeconds, &sub.Expires, &extra); err != nil {
 			return nil, err
 		}
 
 		sub.LeaseTime = time.Duration(leaseSeconds) * time.Second
+
+		if extra.Valid {
+			if err = json.Unmarshal([]byte(extra.String), &sub.Extra); err != nil {
+				return nil, err
+			}
+		}
 
 		ret = append(ret, sub)
 	}
@@ -166,8 +181,20 @@ func (s *Store) Add(sub model.Subscription) error {
 		return err
 	}
 
-	res, err := s.db.Exec("INSERT INTO subscriptions(`topic_id`, `callback`, `secret`, `lease`, `expires_at`) VALUES (?, ?, ?, ?, ?)",
-		topicID, sub.Callback, sub.Secret, sub.LeaseTime/time.Second, sub.Expires)
+	var extra string
+
+	if sub.Extra != nil {
+		b, err := json.Marshal(sub.Extra)
+
+		if err != nil {
+			return err
+		}
+
+		extra = string(b)
+	}
+
+	res, err := s.db.Exec("INSERT INTO subscriptions(`topic_id`, `callback`, `secret`, `lease`, `extra`, `expires_at`) VALUES (?, ?, ?, ?, ?, ?)",
+		topicID, sub.Callback, sub.Secret, sub.LeaseTime/time.Second, extra, sub.Expires)
 
 	if err != nil {
 		return err
@@ -191,19 +218,26 @@ func (s *Store) Get(topic, callback string) (*model.Subscription, error) {
 		return nil, err
 	}
 
-	row := s.db.QueryRow("SELECT id, callback, secret, lease, expires_at FROM subscriptions WHERE topic_id = ? AND callback = ?", topicID, callback)
+	row := s.db.QueryRow("SELECT id, callback, secret, lease, extra, expires_at FROM subscriptions WHERE topic_id = ? AND callback = ?", topicID, callback)
 
 	sub := model.Subscription{
 		Topic: topic,
 	}
 
 	var leaseSeconds int
+	var extra sql.NullString
 
-	if err := row.Scan(&sub.ID, &sub.Callback, &sub.Secret, &leaseSeconds, &sub.Expires); err != nil {
+	if err := row.Scan(&sub.ID, &sub.Callback, &sub.Secret, &leaseSeconds, &extra, &sub.Expires); err != nil {
 		return nil, err
 	}
 
 	sub.LeaseTime = time.Duration(leaseSeconds) * time.Second
+
+	if extra.Valid {
+		if err = json.Unmarshal([]byte(extra.String), &sub.Extra); err != nil {
+			return nil, err
+		}
+	}
 
 	return &sub, nil
 }
