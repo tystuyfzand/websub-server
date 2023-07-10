@@ -97,7 +97,7 @@ func WithWorker(worker Worker) Option {
 }
 
 // WithURL lets you set the hub url.
-// By default, this is auto detected on first request for ease of use.
+// By default, this is auto-detected on first request for ease of use, which is not recommended.
 func WithURL(url string) Option {
 	return func(h *Hub) {
 		h.url = url
@@ -121,7 +121,7 @@ func WithExtra(extraFields map[string]interface{}) Option {
 }
 
 // New creates a new WebSub Hub instance.
-// store is required to store all of the subscriptions.
+// store is required to store all the subscriptions.
 func New(store store.Store, opts ...Option) *Hub {
 	h := &Hub{
 		Handler: handler.New(),
@@ -150,6 +150,11 @@ func New(store store.Store, opts ...Option) *Hub {
 // Hasher returns the current hasher
 func (h *Hub) Hasher() string {
 	return h.hasher
+}
+
+// URL returns the hub url
+func (h *Hub) URL() string {
+	return h.url
 }
 
 // ServeHTTP is a generic webserver handler for websub.
