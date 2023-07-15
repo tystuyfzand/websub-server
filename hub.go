@@ -122,13 +122,13 @@ func WithExtra(extraFields map[string]interface{}) Option {
 
 // New creates a new WebSub Hub instance.
 // store is required to store all the subscriptions.
-func New(store store.Store, opts ...Option) *Hub {
+func New(s store.Store, opts ...Option) *Hub {
 	h := &Hub{
 		Handler: handler.New(),
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		store:            store,
+		store:            s,
 		contentProvider:  HttpContent,
 		hasher:           SHA256,
 		maxLease:         24 * time.Hour,
@@ -138,6 +138,15 @@ func New(store store.Store, opts ...Option) *Hub {
 	for _, opt := range opts {
 		opt(h)
 	}
+
+	// Pass our store events through
+	h.store.AddHandler(func(ev *store.Added) {
+		h.Call(ev)
+	})
+
+	h.store.AddHandler(func(ev *store.Removed) {
+		h.Call(ev)
+	})
 
 	if h.worker == nil {
 		h.worker = NewGoWorker(h, runtime.NumCPU())
