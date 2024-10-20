@@ -57,6 +57,7 @@ type Hub struct {
 	worker           Worker
 	hasher           string
 	url              string
+	defaultLease     time.Duration
 	maxLease         time.Duration
 	maxExtraDataSize int
 	extraFields      map[string]interface{}
@@ -104,8 +105,16 @@ func WithURL(url string) Option {
 	}
 }
 
-// WithMaxLease lets you set the hub's max lease time.
+// WithDefaultLease lets you set the hub's default lease time.
 // By default, this is 24 hours.
+func WithDefaultLease(defaultLease time.Duration) Option {
+	return func(h *Hub) {
+		h.defaultLease = defaultLease
+	}
+}
+
+// WithMaxLease lets you set the hub's max lease time.
+// By default, this is 7 days.
 func WithMaxLease(maxLease time.Duration) Option {
 	return func(h *Hub) {
 		h.maxLease = maxLease
@@ -131,7 +140,8 @@ func New(s store.Store, opts ...Option) *Hub {
 		store:            s,
 		contentProvider:  HttpContent,
 		hasher:           SHA256,
-		maxLease:         24 * time.Hour,
+		defaultLease:     24 * time.Hour,
+		maxLease:         24 * 7 * time.Hour,
 		maxExtraDataSize: 1024 * 1024 * 5, // 5MB
 	}
 
@@ -319,7 +329,12 @@ func (h *Hub) HandleSubscribe(req model.SubscribeRequest) error {
 	}
 
 	// Default lease
-	leaseDuration := 240 * time.Hour
+	leaseDuration := h.defaultLease
+
+	// Check if lease is greater than max lease
+	if leaseDuration > h.maxLease {
+		leaseDuration = h.maxLease
+	}
 
 	if req.LeaseSeconds > 0 {
 		if req.LeaseSeconds < 60 || time.Duration(req.LeaseSeconds)*time.Second > h.maxLease {

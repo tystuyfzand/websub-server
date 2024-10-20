@@ -85,7 +85,7 @@ func (s *Store) All(topic string) ([]model.Subscription, error) {
 
 		sub.LeaseTime = time.Duration(leaseSeconds) * time.Second
 
-		if extra.Valid {
+		if extra.Valid && extra.String != "" {
 			if err = json.Unmarshal([]byte(extra.String), &sub.Extra); err != nil {
 				return nil, err
 			}
@@ -193,17 +193,25 @@ func (s *Store) Add(sub model.Subscription) error {
 		extra = string(b)
 	}
 
-	res, err := s.db.Exec("INSERT INTO subscriptions(`topic_id`, `callback`, `secret`, `lease`, `extra`, `expires_at`) VALUES (?, ?, ?, ?, ?, ?)",
-		topicID, sub.Callback, sub.Secret, sub.LeaseTime/time.Second, extra, sub.Expires)
+	if sub.ID != 0 {
+		_, err = s.db.Exec("UPDATE subscriptions SET expires_at = ? WHERE topic_id = ? AND callback = ?", topicID, sub.Callback)
 
-	if err != nil {
-		return err
-	}
+		if err != nil {
+			return err
+		}
+	} else {
+		res, err := s.db.Exec("INSERT INTO subscriptions(`topic_id`, `callback`, `secret`, `lease`, `extra`, `expires_at`) VALUES (?, ?, ?, ?, ?, ?)",
+			topicID, sub.Callback, sub.Secret, sub.LeaseTime/time.Second, extra, sub.Expires)
 
-	sub.ID, err = res.LastInsertId()
+		if err != nil {
+			return err
+		}
 
-	if err != nil {
-		return err
+		sub.ID, err = res.LastInsertId()
+
+		if err != nil {
+			return err
+		}
 	}
 
 	s.Call(&store.Added{Subscription: sub})
@@ -233,7 +241,7 @@ func (s *Store) Get(topic, callback string) (*model.Subscription, error) {
 
 	sub.LeaseTime = time.Duration(leaseSeconds) * time.Second
 
-	if extra.Valid {
+	if extra.Valid && extra.String != "" {
 		if err = json.Unmarshal([]byte(extra.String), &sub.Extra); err != nil {
 			return nil, err
 		}
